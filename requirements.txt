@@ -1,0 +1,6 @@
+pandas==1.5.1
+openpyxl==3.0.10
+nlp-id==0.1.13.0
+scikit-learn==1.1.0
+streamlit==1.1.0
+jupyterlab==3.5.0
