@@ -1,5 +1,5 @@
-# Created by https://www.toptal.com/developers/gitignore/api/python,virtualenv,jupyternotebooks
-# Edit at https://www.toptal.com/developers/gitignore?templates=python,virtualenv,jupyternotebooks
+# Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,jupyternotebooks,virtualenv,python
+# Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,jupyternotebooks,virtualenv,python
 
 static/
 
@@ -188,4 +188,23 @@ cython_debug/
 pyvenv.cfg
 pip-selfcheck.json
 
-# End of https://www.toptal.com/developers/gitignore/api/python,virtualenv,jupyternotebooks
+### VisualStudioCode ###
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+
+# Local History for Visual Studio Code
+.history/
+
+# Built Visual Studio Code Extensions
+*.vsix
+
+### VisualStudioCode Patch ###
+# Ignore all local history of files
+.history
+.ionide
+
+# End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,jupyternotebooks,virtualenv,python
