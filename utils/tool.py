@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import re
 import os
+import pickle
 
 
 def drop_unnecessary_samples(df: pd.DataFrame) -> pd.DataFrame:
@@ -44,13 +45,36 @@ def remove_html_tag(df: pd.DataFrame) -> pd.DataFrame:
         row[2] = re.sub("---&gt;", "", row[2])
         row[2] = re.sub("--&gt;", "", row[2])
         row[2] = re.sub(over_space, " ", row[2]).strip()
+    df.rename(columns={
+        "FS_TINDAKAN" : "tindakan",
+        "FS_TERAPI" : "terapi",
+        "FS_DIAGNOSA" : "diagnosa"
+    }, inplace=True)
     return df
 
+output_path = "static/output/"
 
-def df_save_output(df: pd.DataFrame, filename: str) -> None:
-    output_path = "static/output/"
+def df_save_output(df: pd.DataFrame, filename: str, extension: str) -> None:
     if not os.path.exists(output_path):
         os.makedirs(output_path)
-        df.to_excel(f"{output_path}{filename}", index=False)
+        if extension == "xlsx":
+            df.to_excel(f"{output_path}{filename}", index=False)
+        elif extension == "tsv":
+            df.to_csv(f"{output_path}{filename}", sep="\t")
     else:
-        df.to_excel(f"{output_path}{filename}", index=False)
+        if extension == "xlsx":
+            df.to_excel(f"{output_path}{filename}", index=False)
+        elif extension == "tsv":
+            df.to_csv(f"{output_path}{filename}", sep="\t")
+
+
+def save_py_obj(filename: str, fileobj) -> None:
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+    with open(f"{output_path}/{filename}", 'wb') as pkl_file:
+        pickle.dump(fileobj, pkl_file)
+
+
+def load_py_obj(filename: str) -> None:
+    with open(f"{output_path}/{filename}", 'rb') as pkl_file:
+        return pickle.load(pkl_file)
