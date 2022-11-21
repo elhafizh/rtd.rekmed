@@ -3,6 +3,7 @@ import numpy as np
 import re
 import os
 import pickle
+from typing import List
 
 
 def drop_unnecessary_samples(df: pd.DataFrame) -> pd.DataFrame:
@@ -46,13 +47,15 @@ def remove_html_tag(df: pd.DataFrame) -> pd.DataFrame:
         row[2] = re.sub("--&gt;", "", row[2])
         row[2] = re.sub(over_space, " ", row[2]).strip()
     df.rename(columns={
-        "FS_TINDAKAN" : "tindakan",
-        "FS_TERAPI" : "terapi",
-        "FS_DIAGNOSA" : "diagnosa"
+        "FS_TINDAKAN": "tindakan",
+        "FS_TERAPI": "terapi",
+        "FS_DIAGNOSA": "diagnosa"
     }, inplace=True)
     return df
 
+
 output_path = "static/output/"
+
 
 def df_save_output(df: pd.DataFrame, filename: str, extension: str) -> None:
     if not os.path.exists(output_path):
@@ -78,3 +81,23 @@ def save_py_obj(filename: str, fileobj) -> None:
 def load_py_obj(filename: str) -> None:
     with open(f"{output_path}/{filename}", 'rb') as pkl_file:
         return pickle.load(pkl_file)
+
+
+def check_total_tokens(list_of_tokens: List[List[str]]) -> int:
+    total = 0
+    for token in list_of_tokens:
+        total = total + len(token)
+    return total
+
+
+def drop_meaningless_tokens(df: pd.DataFrame, l_tokens: List[List[str]]) -> pd.DataFrame:
+    l_meaningless_token = ['mg']
+    detect_index = []
+    for i, _ in enumerate(l_tokens):
+        for lm in l_meaningless_token:
+            if len(_) == 1:
+                if lm == _[0]:
+                    detect_index.append(i)
+    df.drop(detect_index, inplace=True)
+    df.reset_index(drop=True)
+    return f"drop {len(detect_index)} samples"
