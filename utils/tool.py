@@ -3,7 +3,7 @@ import numpy as np
 import re
 import os
 import pickle
-from typing import List
+from typing import List, Tuple
 
 
 def drop_unnecessary_samples(df: pd.DataFrame) -> pd.DataFrame:
@@ -90,14 +90,25 @@ def check_total_tokens(list_of_tokens: List[List[str]]) -> int:
     return total
 
 
-def drop_meaningless_tokens(df: pd.DataFrame, l_tokens: List[List[str]]) -> pd.DataFrame:
+def drop_meaningless_tokens(df: pd.DataFrame,
+                            l_tokens: List[List[str]]) -> \
+        Tuple[pd.DataFrame, List[List[str]]]:
     l_meaningless_token = ['mg']
     detect_index = []
+    new_l_tokens = []
     for i, _ in enumerate(l_tokens):
         for lm in l_meaningless_token:
             if len(_) == 1:
                 if lm == _[0]:
                     detect_index.append(i)
+                else:
+                    new_l_tokens.append(_)
+            elif len(_) > 5:
+                detect_index.append(i)
+            else:
+                new_l_tokens.append(_)
     df.drop(detect_index, inplace=True)
     df.reset_index(drop=True)
-    return f"drop {len(detect_index)} samples"
+    print(f"drop {len(detect_index)} samples")
+    return df, new_l_tokens
+
