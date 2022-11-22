@@ -5,6 +5,7 @@ import os
 import pickle
 from typing import List, Tuple
 from dataclasses import dataclass
+from . import indexing
 
 
 def drop_unnecessary_samples(df: pd.DataFrame) -> pd.DataFrame:
@@ -20,7 +21,7 @@ def drop_unnecessary_samples(df: pd.DataFrame) -> pd.DataFrame:
     )
     intersect_nulls = list(intersect_nulls)
     df.drop(intersect_nulls, inplace=True)
-    df.reset_index(drop=True)
+    df.reset_index(drop=True, inplace=True)
     return df
 
 
@@ -94,24 +95,24 @@ def check_total_tokens(list_of_tokens: List[List[str]]) -> int:
 def drop_meaningless_tokens(df: pd.DataFrame,
                             l_tokens: List[List[str]]) -> \
         Tuple[pd.DataFrame, List[List[str]]]:
-    l_meaningless_token = ['mg']
+    l_meaningless_token = ['mg', 'nv', 'non']
     detect_index = []
-    new_l_tokens = []
     for i, _ in enumerate(l_tokens):
         for lm in l_meaningless_token:
             if len(_) == 1:
                 if lm == _[0]:
                     detect_index.append(i)
-                else:
-                    new_l_tokens.append(_)
-            elif len(_) > 5:
+            elif len(_) > 4:
                 detect_index.append(i)
-            else:
-                new_l_tokens.append(_)
+    detect_index = list(set(detect_index))
+    detect_index = sorted(detect_index, reverse=True)
+    for index in detect_index:
+        if index < len(l_tokens):
+            l_tokens.pop(index)
     df.drop(detect_index, inplace=True)
-    df.reset_index(drop=True)
+    df.reset_index(drop=True, inplace=True)
     print(f"drop {len(detect_index)} samples")
-    return df, new_l_tokens
+    return df, l_tokens
 
 
 @dataclass
@@ -175,4 +176,22 @@ def qa_generator(df: pd.DataFrame) -> pd.DataFrame:
             row[0],row[1],row[2]
         )
         rekmed_qa = pd.concat([rekmed_qa, sampling_qa_pair.generate()])
+    rekmed_qa.reset_index(drop=True, inplace=True)
     return rekmed_qa
+
+
+def grouping_qa(df: pd.DataFrame) -> pd.DataFrame:
+    l_tokens = indexing.tokenization(df.diagnosa)
+    df, l_tokens = drop_meaningless_tokens(df, l_tokens)
+    group = []
+    for token in l_tokens:
+        group.append(f"g{token[0][:4]}")
+    print(f"group {len(group)}")
+    print(f"question {len(df.question)}")
+    print(f"answer {len(df.answer)}")
+    new_df = pd.DataFrame({
+        'group' : group,
+        'question' : df.question,
+        'answer' : df.answer
+    })
+    return new_df

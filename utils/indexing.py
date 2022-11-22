@@ -32,6 +32,7 @@ def tokenization(contents: pd.Series) -> List[List[str]]:
             # remove punctuation & remove stopword
             if not token_of_nlp_contents.is_digit and not token_of_nlp_contents.is_punct \
                     and not token_of_nlp_contents.is_stop:
+            # if not token_of_nlp_contents.is_digit and not token_of_nlp_contents.is_punct:
                 clean_token.append(token_of_nlp_contents.text.lower())
         list_tokens_from_docs.append(clean_token)
     return list_tokens_from_docs
