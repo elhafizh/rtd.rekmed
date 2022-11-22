@@ -6,6 +6,29 @@ import pickle
 from typing import List, Tuple
 from dataclasses import dataclass
 from . import indexing
+import os,pickle,random
+
+import torch
+from torch.utils.data import random_split
+from sentence_transformers.readers import InputExample
+
+from datetime import datetime
+from sentence_transformers import (
+    SentenceTransformer,
+    SentencesDataset,
+    losses,
+    LoggingHandler,
+)
+import logging
+from sklearn.model_selection import train_test_split
+from sentence_transformers.evaluation import EmbeddingSimilarityEvaluator
+
+from transformers import AutoTokenizer, AutoModel
+from datasets import Dataset
+
+from collections import defaultdict, Counter
+from torch.utils.data import DataLoader
+import math
 
 
 def drop_unnecessary_samples(df: pd.DataFrame) -> pd.DataFrame:
@@ -186,12 +209,225 @@ def grouping_qa(df: pd.DataFrame) -> pd.DataFrame:
     group = []
     for token in l_tokens:
         group.append(f"g{token[0][:4]}")
-    print(f"group {len(group)}")
-    print(f"question {len(df.question)}")
-    print(f"answer {len(df.answer)}")
     new_df = pd.DataFrame({
         'group' : group,
         'question' : df.question,
         'answer' : df.answer
     })
     return new_df
+
+
+def gather_entailment(df: pd.DataFrame) -> pd.DataFrame:
+    group1: List[str] = []
+    group2: List[str] = []
+    question1: List[str] = []
+    question2: List[str] = []
+    label: List[float] = []
+    for i, row_i in df.iterrows():
+        for j, row_j in df.iterrows():
+            if i != j:
+                if (row_i.group == row_j.group) and (row_i.answer == row_j.answer):
+                    # prevent duplication
+                    if row_j.question not in question1 and row_i.question not in question2:
+                        group1.append(row_i.group)
+                        group2.append(row_j.group)
+                        question1.append(row_i.question)
+                        question2.append(row_j.question)
+                        label.append(0.8)
+    return pd.DataFrame({
+        'group1' : group1,
+        'group2' : group2,
+        'question1' : question1,
+        'question2' : question2,
+        'label' : label
+    })
+
+
+def gather_neutral(df: pd.DataFrame) -> pd.DataFrame:
+    group1: List[str] = []
+    group2: List[str] = []
+    question1: List[str] = []
+    question2: List[str] = []
+    label: List[float] = []
+    for i, row_i in df.iterrows():
+        for j, row_j in df.iterrows():
+            if i != j:
+                if (row_i.group == row_j.group) and (row_i.answer != row_j.answer):
+                    # prevent duplication
+                    if row_j.question not in question1 and row_i.question not in question2:
+                        group1.append(row_i.group)
+                        group2.append(row_j.group)
+                        question1.append(row_i.question)
+                        question2.append(row_j.question)
+                        label.append(0.4)
+    return pd.DataFrame({
+        'group1' : group1,
+        'group2' : group2,
+        'question1' : question1,
+        'question2' : question2,
+        'label' : label
+    })
+
+
+def gather_contradiction(df: pd.DataFrame) -> pd.DataFrame:
+    group1: List[str] = []
+    group2: List[str] = []
+    question1: List[str] = []
+    question2: List[str] = []
+    label: List[float] = []
+    for i, row_i in df.iterrows():
+        for j, row_j in df.iterrows():
+            if i != j:
+                if (row_i.group != row_j.group) and (row_i.answer != row_j.answer):
+                    # prevent duplication
+                    if row_j.question not in question1 and row_i.question not in question2:
+                        group1.append(row_i.group)
+                        group2.append(row_j.group)
+                        question1.append(row_i.question)
+                        question2.append(row_j.question)
+                        label.append(0)
+    return pd.DataFrame({
+        'group1' : group1,
+        'group2' : group2,
+        'question1' : question1,
+        'question2' : question2,
+        'label' : label
+    })
+
+
+def concatenate_train_examples(l_entailment: pd.DataFrame, l_neutral: pd.DataFrame,
+                          l_contradict: pd.DataFrame) -> pd.DataFrame:
+    num = len(l_entailment)
+    downsize = 0
+    for i in [10000,1000,100,10]:
+        if num//i:
+            downsize = i*10 # if i==1000, downsize dataset by 1000*10
+            break
+    frames = [l_entailment, l_neutral.sample(n=downsize), l_contradict.sample(n=downsize)]
+    print(len(l_neutral.sample(n=downsize)))
+    print(len(l_contradict.sample(n=downsize)))
+    result = pd.concat(frames).reset_index(drop=True).loc[:, "question1":"label"]
+    return result
+
+
+class STSModel:
+    def __init__(
+        self,
+        pretrained_model_name,
+        cuda_device="cuda",
+        pooling_option="mean",
+        task="sts",
+        local=False
+    ):
+
+        self.pretrained_model_name = pretrained_model_name
+        self.cuda_device = cuda_device
+        if not os.path.exists("static/output/models"):
+            os.makedirs("static/output/models")
+        if not local:
+            self.model_output = f"static/output/models/{pretrained_model_name}-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{pooling_option}-{task}"
+        else:
+            self.model_output = self.pretrained_model_name
+
+        logging.basicConfig(
+            format="%(asctime)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            level=logging.INFO,
+            handlers=[LoggingHandler()],
+        )
+        self.model = SentenceTransformer(self.pretrained_model_name)
+        self.device = torch.device(self.cuda_device)
+        self.model.to(self.device)
+
+    def get_samples(self, df):
+        """Convert dataset into InputExample of Sentence Transformer"""
+        samples = []
+        for i, row in df.iterrows():
+            inp_example = InputExample(texts=[row.question1, row.question2], label=row.label)
+            samples.append(inp_example)
+        return samples
+
+    def get_train_samples(self, df):
+        self.train_samples = self.get_samples(df)
+
+    def get_dev_samples(self, df):
+        self.dev_samples = self.get_samples(df)
+
+    def get_test_samples(self, df):
+        # self.test_samples = self.get_samples(df)
+        self.test_samples = self.get_samples(df)
+
+    def get_train_test_dataset(self, df):
+        """Separate samples into 90% Training & 10% Testing"""
+        X = df.loc[:, df.columns[0:2]]
+        y = df.loc[:, df.columns[2]]
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, train_size=0.9, random_state=42, shuffle=True
+        )
+        self.get_train_samples(
+            pd.concat([X_train, y_train], axis=1).reset_index(drop=True)
+        )
+        self.get_dev_samples(
+            pd.concat([X_test, y_test], axis=1).reset_index(drop=True)
+        )
+
+    def fit(self, n_batch=16, n_epoch=4):
+        logging.info("Read Train Dataset")
+        train_dataloader = DataLoader(
+            self.train_samples, shuffle=True, batch_size=n_batch
+        )
+        logging.info("Read Validation Dataset")
+        train_loss = losses.CosineSimilarityLoss(model=self.model)
+        evaluator = EmbeddingSimilarityEvaluator.from_input_examples(
+            self.dev_samples, name="sts-dev"
+        )
+
+        warmup_steps = math.ceil(
+            len(self.train_samples) * n_epoch / n_batch * 0.1
+        )  # 10% of train data for warm-up
+        logging.info("Warmup-steps: {}".format(warmup_steps))
+
+        self.model.fit(
+            train_objectives=[(train_dataloader, train_loss)],
+            evaluator=evaluator,
+            epochs=n_epoch,
+            evaluation_steps=int(len(train_dataloader) * 0.1),
+            warmup_steps=warmup_steps,
+            output_path=self.model_output,
+        )
+
+    def test(self):
+        test_evaluator = EmbeddingSimilarityEvaluator.from_input_examples(
+            self.test_samples, name="sts-test"
+        )
+        similarity = test_evaluator(self.model)
+        logging.info(f"Test {self.model_output}")
+        logging.info(f"similarity: {similarity}")
+        return similarity
+
+
+class LoadFTModel:
+    def __init__(self, pre_trained_model, cuda_device="cuda"):
+        self.pre_trained_model = pre_trained_model
+        self.cuda_device = cuda_device
+
+    def proceed(self):
+        model_ckpt = self.pre_trained_model
+        self.tokenizer = AutoTokenizer.from_pretrained(model_ckpt)
+        self.model = AutoModel.from_pretrained(model_ckpt)
+
+        self.device = torch.device(self.cuda_device)
+        self.model.to(self.device)
+        return self.model
+
+    def cls_pooling(self, model_output):
+        return model_output.last_hidden_state[:, 0]
+
+    def get_embeddings(self, text_list):
+        encoded_input = self.tokenizer(
+            text_list, padding=True, truncation=True, return_tensors="pt"
+        )
+        encoded_input = {k: v.to(self.device) for k, v in encoded_input.items()}
+        model_output = self.model(**encoded_input)
+        return self.cls_pooling(model_output)
+
