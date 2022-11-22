@@ -4,6 +4,7 @@ import re
 import os
 import pickle
 from typing import List, Tuple
+from dataclasses import dataclass
 
 
 def drop_unnecessary_samples(df: pd.DataFrame) -> pd.DataFrame:
@@ -112,3 +113,57 @@ def drop_meaningless_tokens(df: pd.DataFrame,
     print(f"drop {len(detect_index)} samples")
     return df, new_l_tokens
 
+
+@dataclass
+class SamplingQAPair:
+    """Class for generating question & answer pair from diagnosa"""
+    tindakan : str
+    terapi : str
+    diagnosa : str
+
+    def generate(self) -> pd.DataFrame:
+        if isinstance(self.tindakan, str):
+            q_tindakan, a_tindakan = self.generate_tindakan()
+        if isinstance(self.terapi, str):
+            q_terapi, a_terapi = self.generate_terapi()
+        if isinstance(self.tindakan, str) and isinstance(self.terapi, str):
+            return pd.DataFrame({
+                'question' : q_tindakan + q_terapi,
+                'answer' : a_tindakan + a_terapi,
+                'diagnosa': [self.diagnosa]*10
+            })
+        if isinstance(self.tindakan, str):
+            return pd.DataFrame({
+                'question' : q_tindakan,
+                'answer' : a_tindakan,
+                'diagnosa': [self.diagnosa]*5
+            })
+        if isinstance(self.terapi, str):
+            return pd.DataFrame({
+                'question' : q_terapi,
+                'answer' : a_terapi,
+                'diagnosa': [self.diagnosa]*5
+            })
+
+    def generate_tindakan(self) -> Tuple[List[str], List[str]]:
+        q_tindakan = [
+            f"apa tindakan yang dilakukan pada penyakit {self.diagnosa}?",
+            f"tindakan apa yang tepat untuk menangani penyakit {self.diagnosa}?",
+            f"{self.diagnosa} dapat ditangani dengan ...",
+            f"bagaimana tindakan yg dilakukan untuk menangani penyakit {self.diagnosa}?",
+            f"bagaimana {self.diagnosa} dapat ditangani?"
+        ]
+        a_tindakan = [self.tindakan]*5
+        return q_tindakan, a_tindakan
+
+    def generate_terapi(self) -> Tuple[List[str], List[str]]:
+        q_terapi = [
+            f"apa terapi yang tepat untuk penyakit {self.diagnosa}?",
+            f"terapi apa yg disarankan untuk penderita {self.diagnosa}?",
+            f"bagaimana {self.diagnosa} dapat diobati?",
+            f"{self.diagnosa} dapat diobati dengan ...",
+            f"terapi apa yang diperlukan untuk penyakit {self.diagnosa}?"
+        ]
+        a_terapi = [self.terapi]*5
+        return q_terapi, a_terapi
+    

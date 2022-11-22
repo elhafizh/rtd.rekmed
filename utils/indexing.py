@@ -106,11 +106,16 @@ def inverted_index(tokens_docID: List[Tuple[str, int]]) -> \
 
 class BooleanQueries:
     
-    def __init__(self, inverted_index, debug=False):
+    def __init__(self, inverted_index: Dict[Tuple[str, int], Deque[int]], debug=False):
         self.inverted_index = inverted_index
         self.debug = debug
         keys_of_inverted_index = self.inverted_index.keys()
         self.keys_of_inverted_index = dict(keys_of_inverted_index)
+    
+    def search(self, query: str) -> Deque[int]:
+        doc_freq: int = self.keys_of_inverted_index[query]
+        pl_q: Deque[int] = self.inverted_index[(query, doc_freq)]
+        return pl_q
 
     def intersection_query(self, query1, query2):
         # get doc frequency from query
