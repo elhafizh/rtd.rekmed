@@ -167,3 +167,12 @@ class SamplingQAPair:
         a_terapi = [self.terapi]*5
         return q_terapi, a_terapi
     
+
+def qa_generator(df: pd.DataFrame) -> pd.DataFrame:
+    rekmed_qa = pd.DataFrame()
+    for i, row in df.iterrows():
+        sampling_qa_pair = SamplingQAPair(
+            row[0],row[1],row[2]
+        )
+        rekmed_qa = pd.concat([rekmed_qa, sampling_qa_pair.generate()])
+    return rekmed_qa
