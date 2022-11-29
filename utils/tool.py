@@ -30,6 +30,7 @@ from datasets import Dataset
 from collections import defaultdict, Counter
 from torch.utils.data import DataLoader
 import math
+from sklearn.metrics import f1_score
 
 
 def drop_unnecessary_samples(df: pd.DataFrame) -> pd.DataFrame:
@@ -135,7 +136,7 @@ def drop_meaningless_tokens(df: pd.DataFrame,
             l_tokens.pop(index)
     df.drop(detect_index, inplace=True)
     df.reset_index(drop=True, inplace=True)
-    # print(f"drop {len(detect_index)} samples")
+    print(f"drop {len(detect_index)} samples")
     return df, l_tokens
 
 
@@ -154,6 +155,7 @@ def drop_empty_token(df: pd.DataFrame,
             l_tokens.pop(index)
     df.drop(detect_index, inplace=True)
     df.reset_index(drop=True, inplace=True)
+    print(f"drop {len(detect_index)} samples")
     return df, l_tokens
 
 
@@ -211,13 +213,63 @@ class SamplingQAPair:
         return q_terapi, a_terapi
     
 
+    def generate_test(self) -> pd.DataFrame:
+        if isinstance(self.tindakan, str):
+            q_tindakan, a_tindakan = self.generate_tindakan_test()
+        if isinstance(self.terapi, str):
+            q_terapi, a_terapi = self.generate_terapi_test()
+        if isinstance(self.tindakan, str) and isinstance(self.terapi, str):
+            return pd.DataFrame({
+                'question' : q_tindakan + q_terapi,
+                'answer' : a_tindakan + a_terapi,
+                'diagnosa': [self.diagnosa]*2
+            })
+        if isinstance(self.tindakan, str):
+            return pd.DataFrame({
+                'question' : q_tindakan,
+                'answer' : a_tindakan,
+                'diagnosa': [self.diagnosa]
+            })
+        if isinstance(self.terapi, str):
+            return pd.DataFrame({
+                'question' : q_terapi,
+                'answer' : a_terapi,
+                'diagnosa': [self.diagnosa]
+            })
+    
+    def generate_tindakan_test(self) -> Tuple[List[str], List[str]]:
+        q_tindakan = [
+            f"penanganan yang direkomendasikan untuk {self.diagnosa} adalah",
+        ]
+        a_tindakan = [self.tindakan]
+        return q_tindakan, a_tindakan
+
+    def generate_terapi_test(self) -> Tuple[List[str], List[str]]:
+        q_terapi = [
+            f"terapi untuk {self.diagnosa} adalah"
+        ]
+        a_terapi = [self.terapi]
+        return q_terapi, a_terapi
+
+
 def qa_generator(df: pd.DataFrame) -> pd.DataFrame:
     rekmed_qa = pd.DataFrame()
-    for i, row in df.iterrows():
+    for i, row in tqdm(df.iterrows(), total=len(df)):
         sampling_qa_pair = SamplingQAPair(
             row[0],row[1],row[2]
         )
         rekmed_qa = pd.concat([rekmed_qa, sampling_qa_pair.generate()])
+    rekmed_qa.reset_index(drop=True, inplace=True)
+    return rekmed_qa
+
+
+def qa_generator_test(df: pd.DataFrame) -> pd.DataFrame:
+    rekmed_qa = pd.DataFrame()
+    for i, row in tqdm(df.iterrows(), total=len(df)):
+        sampling_qa_pair = SamplingQAPair(
+            row[0],row[1],row[2]
+        )
+        rekmed_qa = pd.concat([rekmed_qa, sampling_qa_pair.generate_test()])
     rekmed_qa.reset_index(drop=True, inplace=True)
     return rekmed_qa
 
@@ -243,7 +295,7 @@ def gather_entailment(df: pd.DataFrame) -> pd.DataFrame:
     question1: List[str] = []
     question2: List[str] = []
     label: List[float] = []
-    for i, row_i in df.iterrows():
+    for i, row_i in tqdm(df.iterrows(), total=len(df)):
         for j, row_j in df.iterrows():
             if i != j:
                 if (row_i.group == row_j.group) and (row_i.answer == row_j.answer):
@@ -269,7 +321,7 @@ def gather_neutral(df: pd.DataFrame) -> pd.DataFrame:
     question1: List[str] = []
     question2: List[str] = []
     label: List[float] = []
-    for i, row_i in df.iterrows():
+    for i, row_i in tqdm(df.iterrows(), total=len(df)):
         for j, row_j in df.iterrows():
             if i != j:
                 if (row_i.group == row_j.group) and (row_i.answer != row_j.answer):
@@ -295,7 +347,7 @@ def gather_contradiction(df: pd.DataFrame) -> pd.DataFrame:
     question1: List[str] = []
     question2: List[str] = []
     label: List[float] = []
-    for i, row_i in df.iterrows():
+    for i, row_i in tqdm(df.iterrows(), total=len(df)):
         for j, row_j in df.iterrows():
             if i != j:
                 if (row_i.group != row_j.group) and (row_i.answer != row_j.answer):
@@ -324,8 +376,8 @@ def concatenate_train_examples(l_entailment: pd.DataFrame, l_neutral: pd.DataFra
             downsize = i*10 # if i==1000, downsize dataset by 1000*10
             break
     frames = [l_entailment, l_neutral.sample(n=downsize), l_contradict.sample(n=downsize)]
-    print(len(l_neutral.sample(n=downsize)))
-    print(len(l_contradict.sample(n=downsize)))
+    # print(len(l_neutral.sample(n=downsize)))
+    # print(len(l_contradict.sample(n=downsize)))
     result = pd.concat(frames).reset_index(drop=True).loc[:, "question1":"label"]
     return result
 
@@ -430,6 +482,7 @@ class LoadFTModel:
     def __init__(self, pre_trained_model, cuda_device="cuda"):
         self.pre_trained_model = pre_trained_model
         self.cuda_device = cuda_device
+        self.proceed()
 
     def proceed(self):
         model_ckpt = self.pre_trained_model
@@ -450,4 +503,46 @@ class LoadFTModel:
         encoded_input = {k: v.to(self.device) for k, v in encoded_input.items()}
         model_output = self.model(**encoded_input)
         return self.cls_pooling(model_output)
+    
+    def map_embeddings(self, qa_pairs: pd.DataFrame):
+        """qa_pairs - columns = group, question, answer"""
+        qa_pairs = Dataset.from_pandas(qa_pairs)
+        self.embeddings_dataset = qa_pairs.map(
+            lambda x: {"embeddings": self.get_embeddings(x["question"]).detach().cpu().numpy()[0]}
+        )
+        self.embeddings_dataset.add_faiss_index(column="embeddings")
+        return self.embeddings_dataset
+    
+    def get_evaluation(self, qa_pairs_test: pd.DataFrame):
+        group_pred = []
+        group_true = []
+        for i, row in tqdm(qa_pairs_test.iterrows(), total=len(qa_pairs_test)):
+            question_embedding = self.get_embeddings([row.question]).cpu().detach().numpy()
+            question_embedding.shape
 
+            scores, samples = self.embeddings_dataset.get_nearest_examples(
+                "embeddings", question_embedding, k=1
+            )
+            samples_df = pd.DataFrame.from_dict(samples)
+            samples_df["scores"] = scores
+            group_true.append(row.group)
+            group_pred.append(samples_df.group[0])
+        
+        F1 = f1_score(group_true, group_pred, average='micro')  
+        self.F1 = round(F1, 3)
+        tp = sum(val_t == val_p for val_t, val_p in zip(group_true, group_pred))
+        self.acc = round(tp/len(group_true), 3)
+
+        self.evaluation_df = pd.DataFrame({
+            'g-reference': group_true,
+            'g-prediction': group_pred,
+            'question': qa_pairs_test.question
+        })
+
+        print(f"true prediction = {tp}, false prediction = {len(group_true)-tp}")
+
+        return f"F1 = {self.F1}, Accuracy = {self.acc}"
+        
+
+
+# def get_evaluation():
