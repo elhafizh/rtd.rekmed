@@ -7,6 +7,7 @@ from typing import List, Tuple
 from dataclasses import dataclass
 from . import indexing
 import os,pickle,random
+from tqdm import tqdm
 
 import torch
 from torch.utils.data import random_split
@@ -134,7 +135,25 @@ def drop_meaningless_tokens(df: pd.DataFrame,
             l_tokens.pop(index)
     df.drop(detect_index, inplace=True)
     df.reset_index(drop=True, inplace=True)
-    print(f"drop {len(detect_index)} samples")
+    # print(f"drop {len(detect_index)} samples")
+    return df, l_tokens
+
+
+def drop_empty_token(df: pd.DataFrame,
+                     l_tokens: List[List[str]]) -> \
+        Tuple[pd.DataFrame, List[List[str]]]:
+
+    detect_index = []
+    for i, _ in enumerate(l_tokens):
+        if not _:
+            detect_index.append(i)
+    detect_index = list(set(detect_index))
+    detect_index = sorted(detect_index, reverse=True)
+    for index in detect_index:
+        if index < len(l_tokens):
+            l_tokens.pop(index)
+    df.drop(detect_index, inplace=True)
+    df.reset_index(drop=True, inplace=True)
     return df, l_tokens
 
 
@@ -206,8 +225,9 @@ def qa_generator(df: pd.DataFrame) -> pd.DataFrame:
 def grouping_qa(df: pd.DataFrame) -> pd.DataFrame:
     l_tokens = indexing.tokenization(df.diagnosa)
     df, l_tokens = drop_meaningless_tokens(df, l_tokens)
+    df, l_tokens = drop_empty_token(df, l_tokens)
     group = []
-    for token in l_tokens:
+    for token in tqdm(l_tokens):
         group.append(f"g{token[0][:4]}")
     new_df = pd.DataFrame({
         'group' : group,
