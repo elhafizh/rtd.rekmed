@@ -544,5 +544,41 @@ class LoadFTModel:
         return f"F1 = {self.F1}, Accuracy = {self.acc}"
         
 
+def ask_a_question(question: str, model_ckpt: str, embeddings_dataset: Dataset) -> None:
 
-# def get_evaluation():
+    tokenizer = AutoTokenizer.from_pretrained(model_ckpt)
+    model = AutoModel.from_pretrained(model_ckpt)
+
+    device = torch.device("cuda")
+    model.to(device)
+
+    def cls_pooling(model_output):
+        return model_output.last_hidden_state[:, 0]
+
+    def get_embeddings(text_list):
+        encoded_input = tokenizer(
+            text_list, padding=True, truncation=True, return_tensors="pt"
+        )
+        encoded_input = {k: v.to(device) for k, v in encoded_input.items()}
+        model_output = model(**encoded_input)
+        return cls_pooling(model_output)
+
+    question_embedding = get_embeddings([question]).cpu().detach().numpy()
+    question_embedding.shape
+
+    scores, samples = embeddings_dataset.get_nearest_examples(
+        "embeddings", question_embedding, k=4
+    )
+
+    import pandas as pd
+
+    samples_df = pd.DataFrame.from_dict(samples)
+    samples_df["scores"] = scores
+    samples_df.sort_values("scores", ascending=False, inplace=True)
+
+    for _, row in samples_df.iterrows():
+        print(f"Question : {row.question}")
+        print(f"Answer : {row.answer}")
+        print(f"SCORE: {row.scores}")
+        print("=" * 50)
+        print()
